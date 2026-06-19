@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "723582843926",
+    "project_id": "futurefocus-dde94",
+    "storage_bucket": "futurefocus-dde94.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:723582843926:android:241925256ebb559abf4937",
+        "android_client_info": {
+          "package_name": "com.example.futurefocus"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDjGdmbnsXY6flEmhHWwEr2uhw5YjI9y1w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
