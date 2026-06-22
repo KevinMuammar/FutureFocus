@@ -194,10 +194,10 @@ fun OnboardingScreen(
 
 @Composable
 private fun OnboardingCard(
+    modifier: Modifier = Modifier,
     page: OnboardingPage,
     isLastPage: Boolean,
     onEnableAccessibility: () -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     Box(
         modifier = modifier

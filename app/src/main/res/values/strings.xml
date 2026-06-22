@@ -1,12 +1,4 @@
 <resources>
     <string name="app_name">FutureFocus</string>
     <string name="accessibility_service_description">FutureFocus menggunakan akses ini untuk mendeteksi saat pengguna membuka aplikasi lain selama sesi fokus berlangsung, dan membantu mengarahkan kembali ke aplikasi.</string>
-    <string name="overlay_title">Tetap Fokus!</string>
-    <string name="overlay_message">Anda sedang dalam sesi fokus. Kembalilah ke FutureFocus untuk melanjutkan.</string>
-
-    <string name="perm_accessibility_title">Aktifkan Aksesibilitas</string>
-    <string name="perm_accessibility_message">FutureFocus membutuhkan layanan aksesibilitas untuk mendeteksi saat Anda membuka aplikasi lain selama sesi fokus.</string>
-    <string name="perm_overlay_title">Izinkan Tampilan di Atas Aplikasi Lain</string>
-    <string name="perm_overlay_message">FutureFocus membutuhkan izin ini untuk menampilkan lapisan fokus di atas aplikasi lain saat sesi berlangsung.</string>
-    <string name="perm_start_session">Mulai Sesi Fokus</string>
 </resources>

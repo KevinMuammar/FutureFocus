@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.util.Locale
 import com.example.futurefocus.model.Goal
 
 @Composable
@@ -94,6 +95,7 @@ fun GoalCardItem(
 
 @Composable
 fun GoalListItem(
+    modifier: Modifier = Modifier,
     goal: Goal,
     onClick: () -> Unit,
     icon: @Composable () -> Unit = {
@@ -113,7 +115,6 @@ fun GoalListItem(
         }
     },
     progressColor: Color = MaterialTheme.colorScheme.primary,
-    modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
@@ -139,7 +140,7 @@ fun GoalListItem(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "${String.format("%.0f", goal.totalHours - goal.remainingHours)} / ${String.format("%.0f", goal.totalHours)} jam",
+                    text = "${String.format(Locale.ROOT, "%.0f", goal.totalHours - goal.remainingHours)} / ${String.format(Locale.ROOT, "%.0f", goal.totalHours)} jam",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

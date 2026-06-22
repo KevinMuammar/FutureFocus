@@ -59,13 +59,14 @@ fun StatisticsScreen(
     }
 
     var periodStats by remember { mutableStateOf(PeriodStats()) }
+    val goals by focusViewModel.goals.collectAsState()
 
     LaunchedEffect(currentRange.startMillis, currentRange.endMillis) {
         periodStats = focusViewModel.statsForPeriod(currentRange)
     }
 
     val dateFormatForLabel = remember {
-        SimpleDateFormat("dd MMM yyyy", Locale("id", "ID"))
+        SimpleDateFormat("dd MMM yyyy", Locale.forLanguageTag("id-ID"))
     }
 
     Scaffold(
@@ -165,7 +166,7 @@ fun StatisticsScreen(
 
             CompletedGoalsCard(
                 goalIds = periodStats.completedGoalIds,
-                goals = focusViewModel.goals.value
+                goals = goals
             )
 
             Spacer(Modifier.height(32.dp))
@@ -262,7 +263,7 @@ private fun PeriodSelector(
 private fun SummaryRow(stats: PeriodStats) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         StatBox(
-            value = String.format("%.1f", stats.totalHours),
+            value = String.format(Locale.ROOT, "%.1f", stats.totalHours),
             unit = "jam",
             label = "Total Fokus",
             color = MaterialTheme.colorScheme.primary,

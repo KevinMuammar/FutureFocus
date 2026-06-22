@@ -1,7 +1,15 @@
 package com.example.futurefocus.repository
 
 import android.util.Log
+import com.example.futurefocus.data.local.AppDatabase
+import com.example.futurefocus.data.local.DailyGoalEntity
+import com.example.futurefocus.data.local.SessionEntity
+import com.example.futurefocus.data.local.toDailyGoalEntity
+import com.example.futurefocus.data.local.toSessionEntity
+import com.example.futurefocus.data.local.SessionAchievementEntity
+import com.example.futurefocus.model.Achievement
 import com.example.futurefocus.model.DailyBreakdown
+import com.example.futurefocus.model.NewAchievement
 import com.example.futurefocus.model.DailyGoal
 import com.example.futurefocus.model.DateRange
 import com.example.futurefocus.model.FocusSession
@@ -9,47 +17,107 @@ import com.example.futurefocus.model.FocusStats
 import com.example.futurefocus.model.PeriodStats
 import com.example.futurefocus.model.SessionStatus
 import com.example.futurefocus.utils.AuthManager
+import com.example.futurefocus.utils.NetworkMonitor
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
 class FocusRepository(
-    private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
+    private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
+    private val database: AppDatabase,
+    private val networkMonitor: NetworkMonitor
 ) {
     private companion object {
         const val TAG = "FutureFocusFirestore"
     }
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private val _sessions = MutableStateFlow<List<FocusSession>>(emptyList())
     private val _dailyGoal = MutableStateFlow(DailyGoal(dateKey = todayKey()))
+    private val _sessionAchievements = MutableStateFlow<Map<String, List<Achievement>>>(emptyMap())
+    private val _currentUserId = MutableStateFlow("local")
     private var sessionListener: ListenerRegistration? = null
     private var goalListener: ListenerRegistration? = null
     private var authStateListener: FirebaseAuth.AuthStateListener? = null
 
     val sessions: StateFlow<List<FocusSession>> = _sessions.asStateFlow()
     val dailyGoal: StateFlow<DailyGoal> = _dailyGoal.asStateFlow()
+    val sessionAchievements: StateFlow<Map<String, List<Achievement>>> = _sessionAchievements.asStateFlow()
 
-    private val currentUserId: String?
+    private val firestoreUid: String?
         get() = AuthManager.currentUser?.uid
 
     init {
         listenAuthState()
+        observeLocalSessions()
+        observeLocalDailyGoal()
+        observeSessionAchievements()
+
+        scope.launch {
+            networkMonitor.isOnline.collect { online ->
+                if (online) syncPendingItems()
+            }
+        }
+    }
+
+    private fun observeLocalSessions() {
+        scope.launch {
+            _currentUserId.collectLatest { userId ->
+                database.sessionDao().observeAll(userId).collect { entities ->
+                    _sessions.value = entities.map { it.toDomainModel() }
+                }
+            }
+        }
+    }
+
+    private fun observeSessionAchievements() {
+        scope.launch {
+            database.sessionAchievementDao().observeAll().collect { entities ->
+                _sessionAchievements.value = entities.groupBy(
+                    keySelector = { it.sessionId },
+                    valueTransform = { it.toDomainModel() }
+                )
+            }
+        }
+    }
+
+    private fun observeLocalDailyGoal() {
+        scope.launch {
+            _currentUserId.collectLatest { userId ->
+                database.dailyGoalDao().observeByDate(todayKey(), userId).collect { entity ->
+                    if (entity != null) {
+                        _dailyGoal.value = entity.toDomainModel().copy(
+                            completedMinutes = stats().todayFocusMinutes
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun listenAuthState() {
         authStateListener?.let { FirebaseAuth.getInstance().removeAuthStateListener(it) }
         authStateListener = FirebaseAuth.AuthStateListener { auth ->
+            _currentUserId.value = auth.currentUser?.uid ?: "local"
             if (auth.currentUser != null) {
                 observeSessions()
                 observeTodayGoal()
+                scope.launch { syncPendingItems() }
             } else {
                 sessionListener?.remove()
                 sessionListener = null
@@ -62,6 +130,7 @@ class FocusRepository(
         FirebaseAuth.getInstance().addAuthStateListener(authStateListener!!)
 
         if (AuthManager.isSignedIn) {
+            _currentUserId.value = AuthManager.currentUser?.uid ?: "local"
             observeSessions()
             observeTodayGoal()
         }
@@ -73,8 +142,10 @@ class FocusRepository(
             goalId = goalId,
             goalTitle = goalTitle
         )
-        _sessions.update { listOf(session) + it }
-        saveSession(session)
+        scope.launch {
+            database.sessionDao().insert(session.toSessionEntity(_currentUserId.value, "PENDING"))
+            syncSessionToFirestore(session)
+        }
         return session
     }
 
@@ -89,7 +160,12 @@ class FocusRepository(
                 }
             }
         }
-        updatedSession?.let(::saveSession)
+        updatedSession?.let { session ->
+            scope.launch {
+                database.sessionDao().updateAttemptCount(session.id, session.attemptCount)
+                syncSessionToFirestore(session)
+            }
+        }
         return updatedSession
     }
 
@@ -163,16 +239,31 @@ class FocusRepository(
             updatedAt = System.currentTimeMillis()
         )
         _dailyGoal.value = goal
-        saveDailyGoal(goal)
+        scope.launch {
+            database.dailyGoalDao().insert(goal.toDailyGoalEntity(_currentUserId.value, "PENDING"))
+            syncDailyGoalToFirestore(goal)
+        }
+    }
+
+    fun saveSessionAchievements(sessionId: String, achievements: List<NewAchievement>) {
+        scope.launch {
+            val entities = achievements.map {
+                SessionAchievementEntity.fromAchievement(sessionId, it.achievement)
+            }
+            database.sessionAchievementDao().insertAll(entities)
+        }
     }
 
     fun refreshTodayGoalProgress() {
-        saveDailyGoal(
-            _dailyGoal.value.copy(
-                completedMinutes = stats().todayFocusMinutes,
-                updatedAt = System.currentTimeMillis()
-            )
+        val goal = _dailyGoal.value.copy(
+            completedMinutes = stats().todayFocusMinutes,
+            updatedAt = System.currentTimeMillis()
         )
+        _dailyGoal.value = goal
+        scope.launch {
+            database.dailyGoalDao().insert(goal.toDailyGoalEntity(_currentUserId.value, "PENDING"))
+            syncDailyGoalToFirestore(goal)
+        }
     }
 
     private fun updateStatus(sessionId: String, status: SessionStatus): FocusSession? {
@@ -186,16 +277,18 @@ class FocusRepository(
                 }
             }
         }
-        updatedSession?.let(::saveSession)
+        updatedSession?.let { session ->
+            scope.launch {
+                database.sessionDao().updateStatus(session.id, status.name, session.completedAt ?: System.currentTimeMillis())
+                syncSessionToFirestore(session)
+            }
+        }
         if (status == SessionStatus.Success) refreshTodayGoalProgress()
         return updatedSession
     }
 
-    private val userIdForFirestore: String?
-        get() = currentUserId
-
-    private fun saveSession(session: FocusSession) {
-        val uid = userIdForFirestore ?: return
+    private fun syncSessionToFirestore(session: FocusSession) {
+        val uid = firestoreUid ?: return
         val payload = mutableMapOf<String, Any?>(
             "duration" to session.durationMinutes,
             "attempt_count" to session.attemptCount,
@@ -212,76 +305,17 @@ class FocusRepository(
             .document(session.id)
             .set(payload)
             .addOnSuccessListener {
-                Log.d(TAG, "Session saved: users/$uid/sessions/${session.id}")
+                scope.launch { database.sessionDao().markSynced(session.id) }
+                Log.d(TAG, "Session synced: ${session.id}")
             }
             .addOnFailureListener { error ->
-                Log.e(TAG, "Failed to save session: ${error.message}", error)
+                Log.e(TAG, "Failed to sync session: ${error.message}", error)
             }
     }
 
-    private fun observeSessions() {
-        val uid = userIdForFirestore ?: return
-        sessionListener?.remove()
-        sessionListener = firestore.collection("users")
-            .document(uid)
-            .collection("sessions")
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.e(TAG, "Failed to observe sessions: ${error.message}", error)
-                    return@addSnapshotListener
-                }
+    private fun syncDailyGoalToFirestore(goal: DailyGoal) {
+        val uid = firestoreUid ?: return
 
-                val loadedSessions = snapshot?.documents
-                    ?.mapNotNull { document ->
-                        val statusName = document.getString("status") ?: SessionStatus.Running.name
-                        FocusSession(
-                            id = document.id,
-                            durationMinutes = document.getLong("duration")?.toInt() ?: return@mapNotNull null,
-                            attemptCount = document.getLong("attempt_count")?.toInt() ?: 0,
-                            status = runCatching { SessionStatus.valueOf(statusName) }.getOrDefault(SessionStatus.Running),
-                            createdAt = document.getLong("created_at") ?: 0L,
-                            completedAt = document.getLong("completed_at"),
-                            goalId = document.getString("goal_id"),
-                            goalTitle = document.getString("goal_title")
-                        )
-                    }
-                    ?.sortedByDescending { it.createdAt }
-                    ?: emptyList()
-
-                _sessions.value = loadedSessions
-                refreshTodayGoalProgress()
-            }
-    }
-
-    private fun observeTodayGoal() {
-        val uid = userIdForFirestore ?: return
-        goalListener?.remove()
-        goalListener = firestore.collection("users")
-            .document(uid)
-            .collection("daily_goals")
-            .document(todayKey())
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.e(TAG, "Failed to observe daily goal: ${error.message}", error)
-                    return@addSnapshotListener
-                }
-
-                val goal = if (snapshot?.exists() == true) {
-                    DailyGoal(
-                        dateKey = snapshot.id,
-                        targetMinutes = snapshot.getLong("target_minutes")?.toInt() ?: 120,
-                        completedMinutes = snapshot.getLong("completed_minutes")?.toInt() ?: 0,
-                        updatedAt = snapshot.getLong("updated_at") ?: System.currentTimeMillis()
-                    )
-                } else {
-                    DailyGoal(dateKey = todayKey())
-                }
-                _dailyGoal.value = goal.copy(completedMinutes = stats().todayFocusMinutes)
-            }
-    }
-
-    private fun saveDailyGoal(goal: DailyGoal) {
-        val uid = userIdForFirestore ?: return
         val payload = mapOf(
             "target_minutes" to goal.targetMinutes,
             "completed_minutes" to goal.completedMinutes,
@@ -294,10 +328,131 @@ class FocusRepository(
             .document(goal.dateKey)
             .set(payload)
             .addOnSuccessListener {
-                Log.d(TAG, "Daily goal saved: users/$uid/daily_goals/${goal.dateKey}")
+                scope.launch { database.dailyGoalDao().markSynced(goal.dateKey, uid) }
+                Log.d(TAG, "Daily goal synced: ${goal.dateKey}")
             }
             .addOnFailureListener { error ->
-                Log.e(TAG, "Failed to save daily goal: ${error.message}", error)
+                Log.e(TAG, "Failed to sync daily goal: ${error.message}", error)
+            }
+    }
+
+    private suspend fun syncPendingItems() {
+        val uid = firestoreUid ?: return
+
+        val pendingSessions = database.sessionDao().getPendingItems(_currentUserId.value)
+        for (entity in pendingSessions) {
+            val payload = mutableMapOf<String, Any?>(
+                "duration" to entity.durationMinutes,
+                "attempt_count" to entity.attemptCount,
+                "status" to entity.status,
+                "created_at" to entity.createdAt,
+                "completed_at" to entity.completedAt,
+                "goal_id" to entity.goalId,
+                "goal_title" to entity.goalTitle
+            )
+            firestore.collection("users")
+                .document(uid)
+                .collection("sessions")
+                .document(entity.id)
+                .set(payload)
+                .addOnSuccessListener {
+                    scope.launch { database.sessionDao().markSynced(entity.id) }
+                    Log.d(TAG, "Pending session synced: ${entity.id}")
+                }
+        }
+
+        val pendingGoals = database.dailyGoalDao().getPendingItems(_currentUserId.value)
+        for (entity in pendingGoals) {
+            val payload = mapOf(
+                "target_minutes" to entity.targetMinutes,
+                "completed_minutes" to entity.completedMinutes,
+                "updated_at" to entity.updatedAt
+            )
+            firestore.collection("users")
+                .document(uid)
+                .collection("daily_goals")
+                .document(entity.dateKey)
+                .set(payload)
+                .addOnSuccessListener {
+                    scope.launch { database.dailyGoalDao().markSynced(entity.dateKey, uid) }
+                    Log.d(TAG, "Pending daily goal synced: ${entity.dateKey}")
+                }
+        }
+    }
+
+    private fun observeSessions() {
+        val uid = firestoreUid ?: return
+        sessionListener?.remove()
+        sessionListener = firestore.collection("users")
+            .document(uid)
+            .collection("sessions")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Failed to observe sessions: ${error.message}", error)
+                    return@addSnapshotListener
+                }
+
+                snapshot?.documentChanges?.forEach { change ->
+                    when (change.type) {
+                        com.google.firebase.firestore.DocumentChange.Type.REMOVED -> {
+                            scope.launch { database.sessionDao().deleteById(change.document.id) }
+                        }
+                        com.google.firebase.firestore.DocumentChange.Type.ADDED,
+                        com.google.firebase.firestore.DocumentChange.Type.MODIFIED -> {
+                            val doc = change.document
+                            val statusName = doc.getString("status") ?: SessionStatus.Running.name
+                            val session = SessionEntity(
+                                id = doc.id,
+                                userId = uid,
+                                durationMinutes = doc.getLong("duration")?.toInt() ?: return@forEach,
+                                attemptCount = doc.getLong("attempt_count")?.toInt() ?: 0,
+                                status = statusName,
+                                createdAt = doc.getLong("created_at") ?: 0L,
+                                completedAt = doc.getLong("completed_at"),
+                                goalId = doc.getString("goal_id"),
+                                goalTitle = doc.getString("goal_title"),
+                                syncStatus = "SYNCED"
+                            )
+                            scope.launch {
+                                database.sessionDao().insert(session)
+                                refreshTodayGoalProgress()
+                            }
+                        }
+                    }
+                }
+            }
+    }
+
+    private fun observeTodayGoal() {
+        val uid = firestoreUid ?: return
+        goalListener?.remove()
+        goalListener = firestore.collection("users")
+            .document(uid)
+            .collection("daily_goals")
+            .document(todayKey())
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Failed to observe daily goal: ${error.message}", error)
+                    return@addSnapshotListener
+                }
+
+                if (snapshot?.exists() == true) {
+                    val entity = DailyGoalEntity(
+                        dateKey = snapshot.id,
+                        userId = uid,
+                        targetMinutes = snapshot.getLong("target_minutes")?.toInt() ?: 120,
+                        completedMinutes = snapshot.getLong("completed_minutes")?.toInt() ?: 0,
+                        updatedAt = snapshot.getLong("updated_at") ?: System.currentTimeMillis(),
+                        syncStatus = "SYNCED"
+                    )
+                    scope.launch {
+                        database.dailyGoalDao().insert(entity)
+                    }
+                } else if (snapshot != null) {
+                    scope.launch {
+                        database.dailyGoalDao().deleteByDateKey(snapshot.id, uid)
+                    }
+                }
             }
     }
 

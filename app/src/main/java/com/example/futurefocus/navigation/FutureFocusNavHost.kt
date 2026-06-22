@@ -11,10 +11,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.edit
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.futurefocus.service.FocusLockService
@@ -24,25 +27,22 @@ import com.example.futurefocus.ui.screen.DurationScreen
 import com.example.futurefocus.ui.screen.FocusLockScreen
 import com.example.futurefocus.ui.screen.GoalDetailScreen
 import com.example.futurefocus.ui.screen.GoalsScreen
-import com.example.futurefocus.ui.screen.HistoryScreen
 import com.example.futurefocus.ui.screen.HomeScreen
 import com.example.futurefocus.ui.screen.OnboardingScreen
 import com.example.futurefocus.ui.screen.PermissionScreen
 import com.example.futurefocus.ui.screen.ProfileScreen
-import com.example.futurefocus.ui.screen.SessionCompleteScreen
-import com.example.futurefocus.ui.screen.StatisticsScreen
+import com.example.futurefocus.ui.screen.YouScreen
 import com.example.futurefocus.utils.PermissionHelper
 import com.example.futurefocus.viewmodel.FocusViewModel
 
 private val mainRoutes = setOf(
     Screen.Home.route,
-    Screen.Statistics.route,
+    Screen.You.route,
     Screen.Goals.route,
     Screen.CreateGoal.route,
     Screen.GoalDetail.route,
-    Screen.History.route,
+    Screen.EditGoal.route,
     Screen.Duration.route,
-    Screen.Profile.route,
 )
 
 @Composable
@@ -71,9 +71,8 @@ fun FutureFocusApp(
 
     val selectedNavIndex = when (currentRoute) {
         Screen.Home.route -> 0
-        Screen.Statistics.route, Screen.History.route -> 1
-        Screen.Goals.route, Screen.CreateGoal.route, Screen.GoalDetail.route -> 2
-        Screen.Profile.route -> 3
+        Screen.You.route -> 1
+        Screen.Goals.route, Screen.CreateGoal.route, Screen.GoalDetail.route, Screen.EditGoal.route -> 2
         else -> 0
     }
 
@@ -92,6 +91,7 @@ fun FutureFocusApp(
     }
 
     Scaffold(
+        topBar = {},
         bottomBar = {
             if (showBottomBar) {
                 BottomNavBar(
@@ -102,20 +102,14 @@ fun FutureFocusApp(
                             launchSingleTop = true
                         }
                     },
-                    onStatsClick = {
-                        navController.navigate(Screen.Statistics.route) {
+                    onYouClick = {
+                        navController.navigate(Screen.You.createRoute()) {
                             popUpTo(Screen.Home.route)
                             launchSingleTop = true
                         }
                     },
                     onGoalsClick = {
                         navController.navigate(Screen.Goals.route) {
-                            popUpTo(Screen.Home.route)
-                            launchSingleTop = true
-                        }
-                    },
-                    onProfileClick = {
-                        navController.navigate(Screen.Profile.route) {
                             popUpTo(Screen.Home.route)
                             launchSingleTop = true
                         }
@@ -132,10 +126,9 @@ fun FutureFocusApp(
             composable(Screen.Onboarding.route) {
                 OnboardingScreen(
                     onGetStarted = {
-                        context.getSharedPreferences("futurefocus", Context.MODE_PRIVATE)
-                            .edit()
-                            .putBoolean("onboarding_completed", true)
-                            .apply()
+                        context.getSharedPreferences("futurefocus", Context.MODE_PRIVATE).edit {
+                            putBoolean("onboarding_completed", true)
+                        }
                         isOnboardingCompleted.value = true
                         navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.Onboarding.route) { inclusive = true }
@@ -151,14 +144,13 @@ fun FutureFocusApp(
                     stats = focusViewModel.stats(),
                     dailyGoal = dailyGoal,
                     goals = goals,
+                    achievements = focusViewModel.allAchievements.filter { it.isUnlocked },
                     showSessionFailed = showSessionFailed,
                     completedGoalId = completedGoalId,
                     onDismissSessionFailed = focusViewModel::dismissSessionFailed,
                     onDismissCompletedGoal = focusViewModel::dismissCompletedGoal,
                     onUpdateDailyGoal = focusViewModel::updateDailyGoal,
                     onStartFocus = { navController.navigate(Screen.Duration.route) },
-                    onOpenHistory = { navController.navigate(Screen.History.route) },
-                    onOpenStatistics = { navController.navigate(Screen.Statistics.route) },
                     onOpenCreateGoal = { navController.navigate(Screen.CreateGoal.route) },
                     onGoalClick = { goalId ->
                         navController.navigate(Screen.GoalDetail.createRoute(goalId))
@@ -220,7 +212,26 @@ fun FutureFocusApp(
                     onToggleSubtask = { subtaskId, completed ->
                         focusViewModel.toggleSubtask(goalId, subtaskId, completed)
                     },
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onEditClick = {
+                        navController.navigate(Screen.EditGoal.createRoute(goalId))
+                    },
+                    onDeleteClick = {
+                        focusViewModel.deleteGoal(goalId)
+                        navController.popBackStack()
+                    }
+                )
+            }
+            composable(Screen.EditGoal.route) { backStackEntry ->
+                val goalId = backStackEntry.arguments?.getString("goalId").orEmpty()
+                val goal = focusViewModel.getGoal(goalId)
+                CreateGoalScreen(
+                    existingGoal = goal,
+                    onBack = { navController.popBackStack() },
+                    onSave = { updatedGoal, _ ->
+                        focusViewModel.updateGoal(updatedGoal)
+                        navController.popBackStack()
+                    }
                 )
             }
             composable(Screen.FocusLock.route) { backStackEntry ->
@@ -234,20 +245,20 @@ fun FutureFocusApp(
                     onExitAttempt = { focusViewModel.registerExitAttempt(sessionId) },
                     onGiveUp = {
                         focusViewModel.failSession(sessionId)
-                        navController.navigate(Screen.Home.route) {
+                        navController.navigate(Screen.You.createRoute(1)) {
                             popUpTo(Screen.Home.route) { inclusive = false }
                         }
                     },
                     onCompleted = {
                         focusViewModel.completeSession(sessionId)
-                        navController.navigate(Screen.SessionComplete.createRoute(sessionId)) {
+                        navController.navigate(Screen.You.createRoute(1)) {
                             popUpTo(Screen.FocusLock.route) { inclusive = true }
                         }
                     },
                     onBackgroundExit = {
                         focusViewModel.failSession(sessionId)
                         focusViewModel.markSessionFailed()
-                        navController.navigate(Screen.Home.route) {
+                        navController.navigate(Screen.You.createRoute(1)) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
                     }
@@ -264,36 +275,22 @@ fun FutureFocusApp(
                     }
                 )
             }
-            composable(Screen.History.route) {
-                HistoryScreen(
-                    sessions = sessions,
-                    onBack = { navController.popBackStack() }
-                )
-            }
-            composable(Screen.Statistics.route) {
-                StatisticsScreen(
-                    stats = focusViewModel.stats(),
-                    dailyGoal = dailyGoal,
+            composable(
+                route = "you?tab={tab}",
+                arguments = listOf(navArgument("tab") { type = NavType.IntType; defaultValue = 0 })
+            ) { backStackEntry ->
+                val tab = backStackEntry.arguments?.getInt("tab") ?: 0
+                YouScreen(
                     focusViewModel = focusViewModel,
-                    onBack = { navController.popBackStack() }
-                )
-            }
-            composable(Screen.SessionComplete.route) { backStackEntry ->
-                val sessionId = backStackEntry.arguments?.getString("sessionId").orEmpty()
-                val session = focusViewModel.getSession(sessionId)
-                val goal = session?.goalId?.let { focusViewModel.getGoal(it) }
-                SessionCompleteScreen(
-                    session = session,
-                    goal = goal,
-                    onHome = {
-                        navController.navigate(Screen.Home.route) {
-                            popUpTo(Screen.Home.route) { inclusive = true }
-                        }
-                    }
+                    onBack = { navController.popBackStack() },
+                    initialTab = tab
                 )
             }
             composable(Screen.Profile.route) {
-                ProfileScreen()
+                ProfileScreen(
+                    achievements = focusViewModel.allAchievements.filter { it.isUnlocked },
+                    onBack = { navController.popBackStack() }
+                )
             }
         }
     }

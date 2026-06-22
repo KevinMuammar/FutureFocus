@@ -3,9 +3,8 @@ package com.example.futurefocus.utils
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.os.Build
 import android.provider.Settings
+import androidx.core.net.toUri
 import android.view.accessibility.AccessibilityManager
 
 object PermissionHelper {
@@ -26,15 +25,13 @@ object PermissionHelper {
     }
 
     fun canDrawOverlays(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Settings.canDrawOverlays(context)
-        } else true
+        return Settings.canDrawOverlays(context)
     }
 
     fun openOverlaySettings(context: Context) {
         val intent = Intent(
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            Uri.parse("package:${context.packageName}")
+            "package:${context.packageName}".toUri()
         ).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }

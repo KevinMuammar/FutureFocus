@@ -6,15 +6,16 @@ sealed class Screen(val route: String) {
     data object FocusLock : Screen("focus/{sessionId}") {
         fun createRoute(sessionId: String) = "focus/$sessionId"
     }
-    data object History : Screen("history")
-    data object Statistics : Screen("statistics")
-    data object SessionComplete : Screen("complete/{sessionId}") {
-        fun createRoute(sessionId: String) = "complete/$sessionId"
+    data object You : Screen("you?tab={tab}") {
+        fun createRoute(tab: Int = 0) = "you?tab=$tab"
     }
     data object Goals : Screen("goals")
     data object CreateGoal : Screen("create_goal")
     data object GoalDetail : Screen("goal_detail/{goalId}") {
         fun createRoute(goalId: String) = "goal_detail/$goalId"
+    }
+    data object EditGoal : Screen("edit_goal/{goalId}") {
+        fun createRoute(goalId: String) = "edit_goal/$goalId"
     }
     data object Permission : Screen("permission")
     data object Onboarding : Screen("onboarding")

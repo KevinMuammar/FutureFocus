@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,7 +15,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -31,6 +31,11 @@ import com.example.futurefocus.service.FocusSessionTracker
 import com.example.futurefocus.utils.countdownLabel
 import kotlinx.coroutines.delay
 
+// ============================================================================
+// FocusLockScreen — Clean minimalist redesign (Notion/Linear-inspired)
+// Visual layer only. All state, parameters, and business logic unchanged.
+// ============================================================================
+
 @Composable
 fun FocusLockScreen(
     session: FocusSession?,
@@ -41,7 +46,7 @@ fun FocusLockScreen(
 ) {
     if (session == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Session tidak ditemukan")
+            Text("Session tidak ditemukan", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
@@ -106,20 +111,6 @@ fun FocusLockScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Background Gradient
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.surface,
-                            MaterialTheme.colorScheme.background
-                        )
-                    )
-                )
-        )
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -128,56 +119,62 @@ fun FocusLockScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Header
+            // ---- Header ----
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 48.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(top = 40.dp)
             ) {
-                Box(
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(32.dp))
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
+                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
                     Text(
-                        text = "SESSION ACTIVE",
-                        style = MaterialTheme.typography.labelLarge,
+                        text = "SESI AKTIF",
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.sp
                     )
                 }
                 Text(
-                    text = session.goalTitle ?: "Focus Session",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
+                    text = session.goalTitle ?: "Sesi Fokus Bebas",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
 
-            // Progress Circle
+            // ---- Minimal Progress Circle ----
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier.size(280.dp)
             ) {
                 val primaryColor = MaterialTheme.colorScheme.primary
-                val trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                val trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
 
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    // Track
                     drawArc(
                         color = trackColor,
                         startAngle = 0f,
                         sweepAngle = 360f,
                         useCenter = false,
-                        style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
+                        style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
                     )
+                    // Progress
                     drawArc(
                         color = primaryColor,
                         startAngle = -90f,
                         sweepAngle = animatedProgress * 360f,
                         useCenter = false,
-                        style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
+                        style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
 
@@ -185,80 +182,98 @@ fun FocusLockScreen(
                     Text(
                         text = countdownLabel(remainingSeconds),
                         style = MaterialTheme.typography.displayLarge.copy(
-                            fontSize = 64.sp,
-                            fontWeight = FontWeight.Black
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = (-1).sp
                         ),
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "tersisa",
-                        style = MaterialTheme.typography.titleMedium,
+                        text = "Tersisa",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            // Motivation & Control
+            // ---- Motivation & Control ----
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(24.dp),
-                modifier = Modifier.padding(bottom = 48.dp)
+                modifier = Modifier.padding(bottom = 32.dp)
             ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
-                    )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                        .padding(20.dp)
                 ) {
                     Text(
                         text = "Tetap fokus. Satu sesi selesai lebih bernilai daripada ribuan distraksi.",
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(24.dp)
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
 
                 TextButton(
-                    onClick = {
-                        exitMessage = onExitAttempt()
-                    },
+                    onClick = { exitMessage = onExitAttempt() },
                     modifier = Modifier.height(48.dp)
                 ) {
                     Text(
-                        text = "Berhenti?",
+                        text = "Menyerah?",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.error,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
         }
     }
 
+    // ---- Minimalist Dialog ----
     exitMessage?.let { message ->
         AlertDialog(
             onDismissRequest = { },
+            icon = {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.errorContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "!", fontSize = 24.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
             title = {
                 Text(
                     text = message.title,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(
                         text = message.message,
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
+
                     if (message.quote != null) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
                                 .padding(16.dp)
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -266,7 +281,8 @@ fun FocusLockScreen(
                                     text = "\"${message.quote}\"",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
-                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "— ${message.author ?: "ZenQuotes"}",
@@ -282,9 +298,11 @@ fun FocusLockScreen(
             confirmButton = {
                 Button(
                     onClick = { exitMessage = null },
-                    shape = RoundedCornerShape(12.dp)
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Text("Lanjut Fokus")
+                    Text("Lanjut Fokus", fontWeight = FontWeight.Medium)
                 }
             },
             dismissButton = if (message.level >= 4) {
@@ -293,20 +311,19 @@ fun FocusLockScreen(
                         onClick = {
                             FocusSessionTracker.endSession()
                             onGiveUp()
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = "Menyerah",
-                            color = MaterialTheme.colorScheme.error
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Normal
                         )
                     }
                 }
-            } else {
-                null
-            },
-            shape = RoundedCornerShape(28.dp),
-            containerColor = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp
+            } else null,
+            shape = RoundedCornerShape(16.dp),
+            containerColor = MaterialTheme.colorScheme.surface
         )
     }
 }
